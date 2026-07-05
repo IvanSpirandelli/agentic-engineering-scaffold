@@ -4,7 +4,7 @@ Why the scaffold looks the way it does. Grounded in Anthropic docs/engineering p
 
 ## Core thesis
 
-The spec proposed an org chart (8 agents). The evidence says the working part of autonomous coding is not the org chart — it is a **verify-gated loop over small tasks with fresh context and file-based state**. Multi-agent parallelism wins on independent *read* work (research, review); it loses on interdependent *write* work like coding (Anthropic: ~15x tokens, "most coding tasks involve fewer truly parallelizable tasks"; Cognition: conflicting implicit decisions).
+The intuitive design is an org chart of specialist agents (supervisor, frontend/backend engineers, designer, test engineer, reviewer, meta-agents). The evidence says the working part of autonomous coding is not the org chart — it is a **verify-gated loop over small tasks with fresh context and file-based state**. Multi-agent parallelism wins on independent *read* work (research, review); it loses on interdependent *write* work like coding (Anthropic: ~15x tokens, "most coding tasks involve fewer truly parallelizable tasks"; Cognition: conflicting implicit decisions).
 
 So the spine is:
 
@@ -18,13 +18,13 @@ escalation at every step → NEEDS_HUMAN.md + notify
 
 Everything mechanical is a script; LLMs are invoked only where judgment is required (decompose, implement, review, arbitrate). Fewer calls, less drift.
 
-## Where the spec's 8 agents landed
+## Where the specialist roles landed
 
-| Spec agent | Became | Why |
+| Role | Became | Why |
 |---|---|---|
 | Supervisor | Main session running `/build` + `scripts/task.sh` | Orchestration is mostly mechanical → code. Judgment (decompose, arbitrate) stays in the main loop with minimal context. |
 | Backend Engineer | `implementer` agent | One implementer per task **spanning all repos** — a split frontend/backend pair drifts on the API contract (Cognition's core failure mode). |
-| Frontend Engineer | `implementer` agent | Same. Cross-repo task still yields one commit per repo (spec requirement) via squash-merge. |
+| Frontend Engineer | `implementer` agent | Same. Cross-repo task still yields one commit per repo via squash-merge. |
 | Frontend Designer | `/design` skill | A standing concept agent produces unverifiable prose. As a skill it runs on demand for UI-heavy tasks, output lands in the task folder where the implementer uses it. |
 | Test Engineer | Implementer's TDD contract + `verify.sh` | Writing tests ≠ running them. Red-before-green is in the implementer prompt; execution is a deterministic gate, not an agent. |
 | Reviewer | `reviewer` agent | The one specialist that clearly earns its context: fresh-context critique beats self-review. Findings are severity-typed; only `blocking` re-loops; hard cap 2 rounds. |
@@ -33,8 +33,8 @@ Everything mechanical is a script; LLMs are invoked only where judgment is requi
 
 ## Decisions (with the socratic objection that shaped each)
 
-1. **Task folders named `NNNN-slug`, not commit names.** *Objection to spec:* the commit hash doesn't exist until after the work — chicken-and-egg. Folder id is stable pre-commit; the resulting SHA is written into task.md and a `Task-Id: NNNN` trailer goes in the commit message. Bidirectional link, no paradox.
-2. **One commit per feature = presentation, not unit of work.** *Objection:* a single end-of-feature commit kills the incremental red/green signal that makes loops converge. So: implementer commits freely on `task/NNNN-slug`, verify runs per change, and `task.sh done` squash-merges to exactly one commit per repo. Spec satisfied, verification cadence preserved.
+1. **Task folders named `NNNN-slug`, not commit names.** *Objection:* the commit hash doesn't exist until after the work — chicken-and-egg. Folder id is stable pre-commit; the resulting SHA is written into task.md and a `Task-Id: NNNN` trailer goes in the commit message. Bidirectional link, no paradox.
+2. **One commit per feature = presentation, not unit of work.** *Objection:* a single end-of-feature commit kills the incremental red/green signal that makes loops converge. So: implementer commits freely on `task/NNNN-slug`, verify runs per change, and `task.sh done` squash-merges to exactly one commit per repo. One-commit rule satisfied, verification cadence preserved.
 3. **tasks/ is the single source of truth.** No separate TODO list to drift. Status lives in each task.md; `task.sh next/status` read it; `tasks/_log.md` is an append-only one-line digest per finished task (bounded supervisor memory). Crash-resume falls out for free: all state transitions hit disk before proceeding.
 4. **Deterministic verification is the engine.** `verify.sh` (per-repo build/lint/test from agents.env) gates every step. Hierarchy of trust: compiler/tests >> fresh-context critic >> LLM-as-judge. Implementer is forbidden from weakening tests to pass — and the reviewer checks for it.
 5. **Review converges by construction.** Findings typed `[blocking|nit]`; nits are logged, not re-looped; max 2 rounds; still blocking → `task.sh block` escalates to human. Never an unbounded ping-pong.
