@@ -35,7 +35,7 @@ scripts/      task.sh (lifecycle) · verify.sh (gate) · preflight.sh ·
 hooks/        guard.py — blocks force-push, push-to-default, destructive rm,
               plugin self-modification
 templates/    project-side starter files
-DESIGN.md     every decision + why, research-grounded
+DESIGN.md     every decision + why
 ```
 
 ## Workspace anatomy (per project)
