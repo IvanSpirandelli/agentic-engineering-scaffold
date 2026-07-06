@@ -23,7 +23,7 @@ mkdir my-product && cd my-product && claude
 scripts/loop.sh                 # headless: fresh context per task, cost/task caps
 ```
 
-Iterate: extend `scaffold/specs/` (edit in place or add files — old versions live in the workspace's git history, not as spec_2 files), re-run `/scaffold:plan` — it plans only the uncovered delta. Each task.md records the spec commit it was planned from (`Spec:`); `/scaffold:retro` uses cross-version rework as evidence.
+Iterate: drop update notes (any shape) in `scaffold/specs/updates/` and re-run `/scaffold:plan` — it integrates them into the living spec (your words are committed verbatim first; you approve the spec diff), then plans only the uncovered delta. Editing `scaffold/specs/` directly works too. Old spec versions live in the workspace's git history, not as spec_2 files; each task.md records the spec commit it was planned from (`Spec:`), and `/scaffold:retro` uses cross-version rework as evidence.
 
 Human touchpoints: approve the plan, read `scaffold/NEEDS_HUMAN.md` when a task blocks, write `scaffold/tasks/<id>-*/feedback.md` after reviewing merged work, run `/scaffold:retro` to turn feedback into scaffold-improvement proposals (you apply them here — agents can't edit the plugin, a hook enforces it).
 

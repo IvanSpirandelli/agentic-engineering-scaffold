@@ -11,4 +11,4 @@ Set up the current directory as a workspace. Templates: `${CLAUDE_PLUGIN_ROOT}/t
 3. Clone/create the repos. A new repo gets: git init, the default branch, a minimal toolchain that makes the verify command pass on empty code, and one initial commit.
 4. `git init` the project root and commit the state files (repo dirs stay ignored — each is its own git repo).
 5. Run `${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh` — it must print PREFLIGHT OK. Fix or report anything red.
-6. Tell the user: write `scaffold/specs/spec.md`, then run `/scaffold:plan`, then `/scaffold:build all` (or `scripts/loop.sh` headless). To iterate later: extend `scaffold/specs/`, re-run `/scaffold:plan` — it plans only the delta.
+6. Tell the user: write `scaffold/specs/spec.md`, then run `/scaffold:plan`, then `/scaffold:build all` (or `scripts/loop.sh` headless). To iterate later: drop update notes in `scaffold/specs/updates/` (or edit the spec directly), re-run `/scaffold:plan` — it merges updates into the spec and plans only the delta.
