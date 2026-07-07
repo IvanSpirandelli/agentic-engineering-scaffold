@@ -73,6 +73,33 @@ w=$(bash -c "source '$SCAFFOLD/scripts/lib.sh'; LIMIT_BACKOFF=42 limit_wait '5-h
 bash -c "source '$SCAFFOLD/scripts/lib.sh'; limit_wait 'ordinary task failure'" >/dev/null \
   && fail "limit_wait matched non-limit output" || true
 
+# --- loop.sh merge enforcement: a session that ends in-progress with committed,
+# review-approved work must be finishable. branch_has_commits detects the work;
+# with an approving review.md the deterministic path runs task.sh done (no model).
+id3=$("$SCAFFOLD/scripts/task.sh" new "Third thing")
+"$SCAFFOLD/scripts/task.sh" start "$id3" >/dev/null
+d3=$(echo scaffold/tasks/"$id3"-*/)   # resolve the task dir once (review.md doesn't exist yet)
+lib() { bash -c "source '$SCAFFOLD/scripts/lib.sh'; $1"; }
+lib "branch_has_commits $id3" && fail "branch_has_commits: true before any commit" || true
+echo "world" > app/third.txt
+git -C app add . && git -C app -c user.email=t@t -c user.name=t commit -qm "wip third"
+lib "branch_has_commits $id3" || fail "branch_has_commits: false after commit"
+# park_wip commits leftover WIP so a retry's preflight stays green; no-op when clean.
+# "uncommitted" = tracked modifications (what preflight checks), so dirty a tracked file.
+echo "dirty" >> app/third.txt
+lib "park_wip $id3 'wip: parked'" || fail "park_wip failed"
+{ git -C app diff --quiet && git -C app diff --cached --quiet; } || fail "park_wip left tree dirty"
+git -C app log -1 --format=%s | grep -q "wip: parked" || fail "park_wip did not commit"
+lib "park_wip $id3 'should-not-appear'" || fail "park_wip on clean tree failed"
+git -C app log -1 --format=%s | grep -q "should-not-appear" && fail "park_wip committed on clean tree" || true
+# approving review.md + committed work → deterministic done merges it (loop.sh's belt path)
+printf '## Round 1\nno findings\nVERDICT: approve\n' > "$d3/review.md"
+verdict=$(grep '^VERDICT:' "$d3/review.md" | tail -1)
+[ "$verdict" = "VERDICT: approve" ] || fail "last-verdict parse gave '$verdict'"
+"$SCAFFOLD/scripts/task.sh" done "$id3" >/dev/null || fail "approved work should merge"
+grep -q "Status: done" "$d3/task.md" || fail "id3 not done after merge"
+git -C app log -1 --format=%B | grep -q "Task-Id: $id3" || fail "id3 merge missing trailer"
+
 # --- no-arg verify must run every repo (regression: "${@:-$REPOS}" collapsed
 # multi-repo REPOS into one word, silently verifying nothing); flat layout
 # (agents.env at the workspace root) must keep working

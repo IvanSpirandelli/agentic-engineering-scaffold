@@ -61,3 +61,26 @@ limit_wait() { # limit_wait <claude output> -> seconds to wait, or rc 1 if not a
     echo "${LIMIT_BACKOFF:-1800}"
   fi
 }
+
+park_wip() { # park_wip <id> <msg>: commit leftover WIP on the task branch so
+  # preflight passes on a retry (task.sh done squashes it away). No-op if clean.
+  local id="$1" msg="$2" dir branch repo path
+  dir=$(task_dir "$id"); branch=$(get_field "$dir/task.md" Branch)
+  for repo in $(get_field "$dir/task.md" Repos); do
+    path=$(repo_path "$repo")
+    [ "$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$branch" ] || continue
+    git -C "$path" diff --quiet && git -C "$path" diff --cached --quiet \
+      || { git -C "$path" add -A; git -C "$path" commit -qm "$msg"; }
+  done
+}
+
+branch_has_commits() { # rc 0 if any affected repo's task branch is ahead of DEFAULT_BRANCH
+  local id="$1" dir branch repo path
+  dir=$(task_dir "$id"); branch=$(get_field "$dir/task.md" Branch)
+  for repo in $(get_field "$dir/task.md" Repos); do
+    path=$(repo_path "$repo")
+    git -C "$path" rev-parse -q --verify "$branch" >/dev/null || continue
+    [ -n "$(git -C "$path" log --oneline "$DEFAULT_BRANCH..$branch" 2>/dev/null)" ] && return 0
+  done
+  return 1
+}
