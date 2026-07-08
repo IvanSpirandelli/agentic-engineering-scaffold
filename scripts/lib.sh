@@ -19,6 +19,7 @@ WS="$(find_workspace)"
 # shellcheck disable=SC1091
 source "$WS/agents.env"
 : "${DEFAULT_BRANCH:=main}"
+: "${DONE:=local}"   # local = squash-merge | pr = push branch + GitHub PR
 : "${REPOS:?agents.env must set REPOS}"
 TASKS="$WS/tasks"
 

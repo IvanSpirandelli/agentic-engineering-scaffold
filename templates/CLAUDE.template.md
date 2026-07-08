@@ -5,6 +5,6 @@ Scaffold workspace. Product spec: `scaffold/specs/` (living documents; versions 
 Pipeline: `/scaffold:plan` → `/scaffold:build` (or `scripts/loop.sh` headless). Mechanics (branching, merging, verification) are scripts under the scaffold plugin — never do them by hand.
 
 Rules:
-- Never commit to the default branch directly; `task.sh done` merges.
+- Never commit to the default branch directly; `task.sh done` merges (or opens a PR when `DONE=pr`).
 - Never mark work done with a red `verify.sh`.
 - Repos: see `scaffold/agents.env`. Scaffold state is versioned by this root repo; code lives in the top-level repo directories (each its own git repo, ignored here).

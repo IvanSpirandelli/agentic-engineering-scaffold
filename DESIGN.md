@@ -11,7 +11,8 @@ So the spine is:
 ```
 specs/ → /plan → tasks/NNNN-slug/ → per task:
   fresh implementer (TDD) → verify.sh (deterministic gate) →
-  fresh reviewer (≤2 rounds) → squash-merge (one commit/repo) →
+  fresh reviewer (≤2 rounds) → squash-merge (one commit/repo;
+  DONE=pr: push branch + pre-reviewed PR instead) →
   digest to tasks/_log.md → next task
 escalation at every step → NEEDS_HUMAN.md + notify
 ```
@@ -49,6 +50,9 @@ Everything mechanical is a script; LLMs are invoked only where judgment is requi
 14. **Usage limits pause the loop; they don't block tasks.** *Objection:* loop.sh treated every nonzero `claude -p` exit as a task failure, so a subscription limit cascaded — each remaining task got blocked and NEEDS_HUMAN.md filled with non-problems. A limit is an environment condition, not a task outcome: `limit_wait` (lib.sh) recognizes the limit message, sleeps until the advertised reset (fallback `LIMIT_BACKOFF`, default 30 min), and loop.sh retries the *same* task. Interrupted WIP is parked as a commit on the task branch (squash-merge erases it later) so preflight stays green, and `task.sh start` resumes an in-progress task by checking out its existing branch. Only genuine failures still escalate.
 15. **A session that ends in-progress is finished, not blocked.** *Objection:* the merge (`task.sh done`) runs inside the one-shot `claude -p` session; when that session ends a step early the work is committed on the branch but never merged, and loop.sh's old safety net just marked it `blocked` and moved on — a half-finished task escalated as a failure. The merge is not the model's to lose. So loop.sh drives an in-progress result to a terminal state: first deterministically (review approved + branch has commits → run `task.sh done` from bash, no extra model call; `verify.sh` inside it still gates a red tree), else by re-invoking the same task up to `MAX_RESUME` (default 3) — `task.sh start` resumes the existing branch so build continues into review + merge — and only then blocking. Consistent with #14: a truncated session is an interruption to retry, not a task outcome. Leftover WIP is parked as a commit first (same as #14) so the resume's preflight stays green.
 16. **Repos and scaffold state are siblings under the project root.** State lives in `scaffold/` (agents.env, specs/, tasks/, NEEDS_HUMAN.md); code repos are top-level dirs referenced as `../<repo>`; the root keeps only CLAUDE.md + .claude/. `find_workspace` probes `scaffold/agents.env` too, so scripts work from the root, the state dir, or inside a repo. Flat layouts (agents.env at the root) keep working.
+17. **Team mode is one knob, not a fork: `DONE=local|pr`.** *Objection:* why not auto-detect an origin remote? A solo project may push for backup; guessing would silently change merge semantics. Explicit in agents.env, validated by preflight (origin present, `gh` authenticated). Everything upstream of the terminal state — plan, implementer, verify, reviewer — is mode-blind, so mode 1 users see zero change.
+18. **`DONE=pr`: the platform is the merge arbiter.** In a shared repo, local squash-merge bypasses team review and races a moving upstream. So `task.sh done` pushes the task branch and opens a PR carrying the task contract plus the agent review (the PR arrives pre-reviewed); "one commit per feature" (#2) is delegated to the repo's squash-merge policy. The task parks at `Status: pr`; deterministic `task.sh sync` (run by preflight) reconciles against GitHub — merged → done + digest + branch cleanup, closed-unmerged → blocked. tasks/ stays the single source of truth (#3) by reconciliation instead of monopoly. Fresh base: pr-mode preflight fetches and `--ff-only`s the default branch whenever a repo sits on it, so every task branches from current upstream. Known limit: a task that builds on a still-unmerged PR would branch without that work — /build stops and says so (stacked PRs are deliberately not built).
+19. **A red upstream parks the loop; it doesn't block tasks.** Same shape as #14: a teammate breaking `origin/DEFAULT_BRANCH` is an environment condition, not a task outcome. When pr-mode preflight's verify fails with every repo sitting exactly at `origin/DEFAULT_BRANCH`, it exits 3 (`UPSTREAM RED`) and loop.sh notifies + retries after `UPSTREAM_BACKOFF` (default 30 min) instead of filling NEEDS_HUMAN.md with someone else's breakage.
 
 ## Steelman we accepted
 
@@ -56,6 +60,7 @@ Everything mechanical is a script; LLMs are invoked only where judgment is requi
 
 ## Deliberately not built (yet)
 
+- Multi-user scaffold state (several plugin users on one project): push the workspace repo to a shared remote; claiming = `Owner:` field + optimistic git push (rejected push = lost race, pull and pick another task); a `Needs: <id>` field gates `task.sh next`; `merge=union` for the append-only _log.md/NEEDS_HUMAN.md. `DONE=pr` already handles code integration between users. Build when a second plugin user exists.
 - Parallel implementers in worktrees (agent teams): worktrees solve file collisions, not decision conflicts. Add when tasks are provably disjoint and the sequential loop is trusted.
 - Telegram/WhatsApp bridge: notify.sh is the seam; wire it when needed.
 - LLM-as-judge quality gates: weakest verifier class; deterministic gates + reviewer cover it.

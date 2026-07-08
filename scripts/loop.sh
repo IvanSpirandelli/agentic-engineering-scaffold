@@ -5,8 +5,10 @@
 # exit pauses until the reset and retries the task instead of blocking it.
 # A session that ends still in-progress (work committed but not merged) is
 # re-invoked to finish, up to MAX_RESUME times, before it's blocked.
+# DONE=pr: a red origin/DEFAULT_BRANCH (preflight exit 3) parks the loop and
+# retries after UPSTREAM_BACKOFF — teammate breakage is not a task failure.
 # Run from the project root.
-# Usage: MAX_TASKS=5 MAX_COST_USD=15 MAX_RESUME=3 LIMIT_BACKOFF=1800 loop.sh
+# Usage: MAX_TASKS=5 MAX_COST_USD=15 MAX_RESUME=3 LIMIT_BACKOFF=1800 UPSTREAM_BACKOFF=1800 loop.sh
 set -euo pipefail
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPTS/lib.sh"
@@ -26,7 +28,14 @@ SUBSCRIPTION=
   && SUBSCRIPTION=1
 errf=$(mktemp); trap 'rm -f "$errf"' EXIT
 
-"$SCRIPTS/preflight.sh"
+until "$SCRIPTS/preflight.sh"; do
+  rc=$?
+  [ "$rc" -eq 3 ] || exit "$rc"
+  wait="${UPSTREAM_BACKOFF:-1800}"
+  echo "── upstream red; retrying preflight in $((wait / 60))m"
+  "$SCRIPTS/notify.sh" "loop.sh: origin/$DEFAULT_BRANCH is red — retrying in $((wait / 60))m" || true
+  sleep "$wait"
+done
 
 while [ "$n" -lt "$MAX_TASKS" ]; do
   id=$("$SCRIPTS/task.sh" next) || { echo "no todo tasks left"; break; }
@@ -41,7 +50,7 @@ while [ "$n" -lt "$MAX_TASKS" ]; do
           --allowedTools "Bash,Read,Edit,Write,Glob,Grep,Agent,Skill,TodoWrite" \
           --output-format json 2>"$errf") || rc=$?
     dir=$(task_dir "$id"); status=$(get_field "$dir/task.md" Status)
-    if [ "$rc" -ne 0 ] && [ "$status" != "done" ] \
+    if [ "$rc" -ne 0 ] && [ "$status" != "done" ] && [ "$status" != "pr" ] \
        && wait=$(limit_wait "$out"$'\n'"$(cat "$errf")"); then
       # usage limit, not a task failure: park WIP so preflight passes on retry,
       # reopen if the dying session blocked it, then wait it out and rerun.
@@ -64,7 +73,7 @@ while [ "$n" -lt "$MAX_TASKS" ]; do
       # tree still won't merge; if it refuses, fall through to a resume.
       if [ "VERDICT: approve" = "$(grep '^VERDICT:' "$dir/review.md" 2>/dev/null | tail -1)" ] \
          && branch_has_commits "$id" && "$SCRIPTS/task.sh" done "$id"; then
-        status=done
+        status=$(get_field "$dir/task.md" Status)   # done, or pr when DONE=pr
       fi
     fi
     if [ "$status" = "in-progress" ]; then

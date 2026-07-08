@@ -116,6 +116,66 @@ EOF
 [ -f "$WS2/a/ran_a" ] && [ -f "$WS2/b/ran_b" ] || fail "no-arg verify skipped a repo"
 cd "$WS"
 
+# --- DONE=pr: fresh base from origin, done pushes branch + opens PR (gh is
+# stubbed, origin is a local bare repo), sync completes on merge, and a red
+# origin/main makes preflight exit 3 (UPSTREAM RED)
+WS3="$TMP/ws3"; mkdir -p "$WS3/app" "$WS3/scaffold/tasks" "$TMP/bin"
+cat > "$TMP/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "auth status") exit 0 ;;
+  "pr view") case "$3" in
+               https://*) [ -n "${GH_PR_STATE:-}" ] || exit 1
+                          echo "$GH_PR_STATE ${GH_PR_SHA:-}" ;;
+               *) exit 1 ;;   # no PR exists for this branch yet
+             esac ;;
+  "pr create") echo "https://example.test/pr/1" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$TMP/bin/gh"
+export PATH="$TMP/bin:$PATH"
+git init --bare -qb main "$TMP/app-origin"
+git -C "$WS3/app" init -qb main
+git -C "$WS3/app" config user.email t@t && git -C "$WS3/app" config user.name t
+echo ok > "$WS3/app/ok.txt"
+git -C "$WS3/app" add . && git -C "$WS3/app" commit -qm init
+git -C "$WS3/app" remote add origin "$TMP/app-origin"
+git -C "$WS3/app" push -qu origin main
+cat > "$WS3/scaffold/agents.env" <<'EOF'
+PROJECT_NAME=smoke3
+DEFAULT_BRANCH=main
+DONE=pr
+REPOS="app"
+REPO_app=../app
+VERIFY_app="test -f ok.txt"
+EOF
+cd "$WS3"
+"$SCAFFOLD/scripts/preflight.sh" >/dev/null || fail "pr-mode preflight should pass"
+idp=$("$SCAFFOLD/scripts/task.sh" new "Pr flow")
+"$SCAFFOLD/scripts/task.sh" start "$idp" >/dev/null
+echo feature > app/feat.txt
+git -C app add . && git -C app commit -qm "wip pr flow"
+"$SCAFFOLD/scripts/task.sh" done "$idp" >/dev/null || fail "pr-mode done failed"
+dp=$(echo scaffold/tasks/"$idp"-*/)
+grep -q "Status: pr" "$dp/task.md" || fail "status should be pr, not merged"
+grep -q "PR: app:https://example.test/pr/1" "$dp/task.md" || fail "PR url not recorded"
+[ "$(git -C app rev-parse --abbrev-ref HEAD)" = "main" ] || fail "should be back on main after pr"
+git -C "$TMP/app-origin" rev-parse -q --verify "task/$idp-pr-flow" >/dev/null || fail "branch not pushed to origin"
+GH_PR_STATE=OPEN "$SCAFFOLD/scripts/task.sh" sync >/dev/null
+grep -q "Status: pr" "$dp/task.md" || fail "open PR must not complete the task"
+GH_PR_STATE=MERGED GH_PR_SHA=1234567890abcdef "$SCAFFOLD/scripts/task.sh" sync >/dev/null
+grep -q "Status: done" "$dp/task.md" || fail "merged PR should complete the task"
+grep -q "app:1234567" "$dp/task.md" || fail "merge sha not recorded"
+grep -q "$idp" scaffold/tasks/_log.md || fail "no log line after sync"
+git -C app rev-parse -q --verify "task/$idp-pr-flow" >/dev/null && fail "local branch not cleaned up" || true
+# red origin/main: verify fails with the repo exactly at origin → exit 3
+rm app/ok.txt && git -C app add -A && git -C app commit -qm "teammate breaks main"
+git -C app push -q origin main
+rc=0; "$SCAFFOLD/scripts/preflight.sh" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "red upstream should exit 3, got $rc"
+cd "$WS"
+
 # --- guard hook
 g() { echo "$1" | python3 "$SCAFFOLD/hooks/guard.py" >/dev/null 2>&1; }
 g '{"tool_name":"Bash","tool_input":{"command":"git push --force origin x"}}' && fail "guard: force push allowed" || true
