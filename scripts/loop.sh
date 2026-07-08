@@ -12,7 +12,9 @@
 # CONTINUE_ON_BLOCK=1 skips past it. An env/transient crash before any work (no
 # network, stranded tree) is retried up to MAX_RETRIES with RETRY_BACKOFF between
 # tries, then hard-stops with the captured reason — the task is left todo.
-# Usage: MAX_TASKS=5 MAX_COST_USD=15 MAX_RESUME=3 MAX_RETRIES=10 RETRY_BACKOFF=60 LIMIT_BACKOFF=1800 UPSTREAM_BACKOFF=1800 CONTINUE_ON_BLOCK=0 loop.sh
+# MODEL pins the model passed to claude -p (default opus) so the session never
+# silently falls back to a cheaper default; set MODEL=sonnet|fable to switch.
+# Usage: MODEL=opus MAX_TASKS=5 MAX_COST_USD=15 MAX_RESUME=3 MAX_RETRIES=10 RETRY_BACKOFF=60 LIMIT_BACKOFF=1800 UPSTREAM_BACKOFF=1800 CONTINUE_ON_BLOCK=0 loop.sh
 set -euo pipefail
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPTS/lib.sh"
@@ -23,6 +25,16 @@ MAX_RESUME="${MAX_RESUME:-3}"
 MAX_RETRIES="${MAX_RETRIES:-10}"
 RETRY_BACKOFF="${RETRY_BACKOFF:-60}"
 BUILD_SKILL="${BUILD_SKILL:-/scaffold:build}"
+# Pin the model so a one-shot session never silently falls back to a cheaper
+# default. Friendly names map to what claude --model accepts.
+MODEL="${MODEL:-opus}"
+case "$MODEL" in
+  opus)   MODEL_ARG="opus" ;;
+  sonnet) MODEL_ARG="sonnet" ;;
+  fable)  MODEL_ARG="claude-fable-5" ;;
+  *) echo "ERROR: MODEL must be opus, sonnet, or fable (got '$MODEL')" >&2; exit 1 ;;
+esac
+MODEL_UC=$(echo "$MODEL" | tr '[:lower:]' '[:upper:]')
 total_cost=0 n=0 retries=0
 
 # On a Claude subscription there's no per-token bill, so total_cost_usd is an
@@ -56,10 +68,12 @@ while [ "$n" -lt "$MAX_TASKS" ]; do
   fi
   if [ -n "$SUBSCRIPTION" ]; then spent="subscription"; else spent="\$$total_cost"; fi
   echo "══ task $id (task $((n + 1))/$MAX_TASKS, spent $spent)"
+  echo "Solving task with $MODEL_UC"
   resume=0; task_cost=0; fail_reason=""; prompt="$BUILD_SKILL $id"
   while :; do
     rc=0
     out=$(claude -p "$prompt" \
+          --model "$MODEL_ARG" \
           --permission-mode acceptEdits \
           --allowedTools "Bash,Read,Edit,Write,Glob,Grep,Agent,Skill,TodoWrite" \
           --output-format json 2>"$errf") || rc=$?
