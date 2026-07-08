@@ -58,6 +58,16 @@ grep -q "unclear spec" scaffold/NEEDS_HUMAN.md || fail "no NEEDS_HUMAN entry"
 "$SCAFFOLD/scripts/task.sh" reopen "$id2" >/dev/null
 [ "$("$SCAFFOLD/scripts/task.sh" next)" = "0002" ] || fail "reopened task should be next"
 
+# --- successor-gating: a blocked task halts next (exit 3) so its dependents
+# don't run; CONTINUE_ON_BLOCK=1 skips the block to the later todo
+"$SCAFFOLD/scripts/task.sh" block "$id2" "gate test" >/dev/null
+id_after=$("$SCAFFOLD/scripts/task.sh" new "After the block")
+rc=0; "$SCAFFOLD/scripts/task.sh" next >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "next must halt (exit 3) on a blocked predecessor, got $rc"
+[ "$(CONTINUE_ON_BLOCK=1 "$SCAFFOLD/scripts/task.sh" next)" = "$id_after" ] \
+  || fail "CONTINUE_ON_BLOCK=1 should skip the block to the next todo"
+"$SCAFFOLD/scripts/task.sh" reopen "$id2" >/dev/null   # restore for later tests
+
 # --- red verify blocks done
 "$SCAFFOLD/scripts/task.sh" start "$id2" >/dev/null
 "$SCAFFOLD/scripts/task.sh" start "$id2" >/dev/null || fail "start must resume an in-progress task"

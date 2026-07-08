@@ -17,6 +17,6 @@ Scripts: `${CLAUDE_PLUGIN_ROOT}/scripts/`. You orchestrate; you do not write cod
    - still blocking at Rounds = 2 → `task.sh block <id> "review did not converge: <summary>"`, stop this task.
 5. `task.sh done <id>` — verifies green, then per `DONE` in agents.env: `local` squash-merges one commit per repo; `pr` pushes the branch and opens a pre-reviewed PR (the task completes via `task.sh sync` once a human merges it). If it fails, treat the failure output as a blocking finding: one repair round, then block.
 6. Report ≤5 lines to the user: task, verdict, commits or PR URL, cost if known, anything odd.
-7. If the argument was `all`, repeat from step 1 until `task.sh next` is empty; stop immediately if two consecutive tasks end blocked. `DONE=pr`: if the next task builds on work sitting in an unmerged PR, stop and say so — it would branch from a base without that work.
+7. If the argument was `all`, repeat from step 1 until `task.sh next` reports no task — it halts (and says so) on a blocked task, which gates its successors, so stop and report when it does. `DONE=pr`: if the next task builds on work sitting in an unmerged PR, stop and say so — it would branch from a base without that work.
 
 Never edit code yourself, never merge manually, never bypass a red verify.

@@ -72,10 +72,19 @@ cmd_start() {
 }
 
 cmd_next() {
-  local d
+  # Scan in id order. A blocked task gates its successors — stop and signal
+  # (exit 3) so no driver (loop.sh or an interactive /build) marches into a
+  # dependent that needs the missing prerequisite. Todos *before* the block
+  # still run. CONTINUE_ON_BLOCK=1 skips past it for independent task sets.
+  local d s
   for d in "$TASKS"/[0-9]*/; do
     [ -f "$d/task.md" ] || continue
-    [ "$(get_field "$d/task.md" Status)" = "todo" ] && { basename "$d" | cut -d- -f1; return 0; }
+    s=$(get_field "$d/task.md" Status)
+    if [ "$s" = "blocked" ] && [ "${CONTINUE_ON_BLOCK:-}" != "1" ]; then
+      echo "next: blocked task $(basename "$d" | cut -d- -f1) gates the queue" >&2
+      return 3
+    fi
+    [ "$s" = "todo" ] && { basename "$d" | cut -d- -f1; return 0; }
   done
   return 1
 }
