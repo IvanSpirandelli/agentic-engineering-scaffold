@@ -237,6 +237,27 @@ rc=0; "$SCAFFOLD/scripts/preflight.sh" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || fail "red upstream should exit 3, got $rc"
 cd "$WS"
 
+# --- notify.sh Telegram leg: sends into the project's topic when creds are set,
+# prints-only when they're not. curl is stubbed to log its args ($TMP/bin is on
+# PATH from the pr-mode section above). TELEGRAM_ENV points nowhere so a real
+# ~/.agent-orchestrator/telegram.env can't leak into the test.
+cat > "$TMP/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CURL_LOG"
+EOF
+chmod +x "$TMP/bin/curl"
+export CURL_LOG="$TMP/curl.log" TELEGRAM_ENV=/nonexistent
+: > "$CURL_LOG"
+TELEGRAM_BOT_TOKEN=tok TELEGRAM_CHAT_ID=42 TELEGRAM_TOPIC_ID=7 \
+  "$SCAFFOLD/scripts/notify.sh" "hello from smoke" >/dev/null
+grep -q "sendMessage" "$CURL_LOG" || fail "notify: no telegram send with creds set"
+grep -q "chat_id=42" "$CURL_LOG" || fail "notify: chat_id not sent"
+grep -q "message_thread_id=7" "$CURL_LOG" || fail "notify: topic id not sent"
+grep -q "hello from smoke" "$CURL_LOG" || fail "notify: message text not sent"
+: > "$CURL_LOG"
+"$SCAFFOLD/scripts/notify.sh" "no creds here" >/dev/null
+[ -s "$CURL_LOG" ] && fail "notify: hit telegram without creds" || true
+
 # --- guard hook
 g() { echo "$1" | python3 "$SCAFFOLD/hooks/guard.py" >/dev/null 2>&1; }
 g '{"tool_name":"Bash","tool_input":{"command":"git push --force origin x"}}' && fail "guard: force push allowed" || true
