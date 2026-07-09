@@ -5,15 +5,19 @@
 # exit pauses until the reset and retries the task instead of blocking it.
 # Out of credits (billing exhausted — doesn't reset on a timer) hard-stops with
 # exit 4; a human must top up or switch MODEL, so retrying is pointless.
-# A session that ends still in-progress (work committed but not merged) is
-# re-invoked to finish, up to MAX_RESUME times, before it's blocked.
+# A session that ends still in-progress (work committed but not merged) is driven
+# to a terminal state: finished deterministically when the branch is green +
+# committed (review approved, or a resume that stalled — so it is never blocked
+# merely for lacking a review verdict), else re-invoked up to MAX_RESUME times,
+# else blocked with the verify color (GREEN/RED) in the reason.
 # DONE=pr: a red origin/DEFAULT_BRANCH (preflight exit 3) parks the loop and
 # retries after UPSTREAM_BACKOFF — teammate breakage is not a task failure.
 # Run from the project root.
 # Task selection halts on a blocked task (task.sh next gates its successors);
-# CONTINUE_ON_BLOCK=1 skips past it. An env/transient crash before any work (no
-# network, stranded tree) is retried up to MAX_RETRIES with RETRY_BACKOFF between
-# tries, then hard-stops with the captured reason — the task is left todo.
+# CONTINUE_ON_BLOCK=1 skips past it. A transient API/network drop and an env crash
+# before any work (no network, stranded tree) are retried up to MAX_RETRIES with
+# RETRY_BACKOFF between tries — never counting against MAX_RESUME — then hard-stop
+# with the captured reason; a zero-commit branch is abandoned so the retry is clean.
 # MODEL pins the model passed to claude -p (default opus) so the session never
 # silently falls back to a cheaper default; set MODEL=sonnet|fable to switch.
 # Usage: MODEL=opus MAX_TASKS=5 MAX_COST_USD=15 MAX_RESUME=3 MAX_RETRIES=10 RETRY_BACKOFF=60 LIMIT_BACKOFF=1800 UPSTREAM_BACKOFF=1800 CONTINUE_ON_BLOCK=0 loop.sh
@@ -91,6 +95,7 @@ while [ "$n" -lt "$MAX_TASKS" ]; do
   echo "Solving task with $MODEL_UC"
   resume=0; task_cost=0; fail_reason=""; prompt="$BUILD_SKILL $id"
   while :; do
+    before=$(branch_head "$id")   # branch tips before the session, to detect a no-op resume
     rc=0
     out=$(claude -p "$prompt" \
           --model "$MODEL_ARG" \
@@ -117,6 +122,31 @@ while [ "$n" -lt "$MAX_TASKS" ]; do
       echo "── stopped: out of credits on $id — top up (/usage-credits) or switch model (MODEL=sonnet|fable)"
       "$SCRIPTS/notify.sh" "loop.sh stopped: out of credits on $id — top up or switch model" || true
       exit 4
+    fi
+    if [ "$rc" -ne 0 ] && [ "$status" != "done" ] && [ "$status" != "pr" ] \
+       && is_transient_api_error "$(echo "$out" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("result",""))
+except Exception: pass' 2>/dev/null)"$'\n'"$(cat "$errf")"; then
+      # Transient network/API drop (e.g. "connection closed mid-response") — external
+      # and self-clearing, not the task's fault. It must never count against MAX_RESUME
+      # nor terminate the loop. No committed work → abandon so the branch/repo restart
+      # clean and the retry starts fresh; work landed → park it. Retry the SAME task,
+      # bounded by MAX_RETRIES so a persistent outage still hard-stops.
+      if branch_has_commits "$id"; then
+        park_wip "$id" "wip: interrupted by transient API error" || true
+      else
+        "$SCRIPTS/task.sh" abandon "$id" >/dev/null 2>&1 || true
+        resume=0; prompt="$BUILD_SKILL $id"   # empty branch is gone; start fresh
+      fi
+      retries=$((retries + 1))
+      if [ "$retries" -ge "$MAX_RETRIES" ]; then
+        echo "── $id: transient API error ${retries}× — persistent outage, stopping the loop" >&2
+        "$SCRIPTS/notify.sh" "loop.sh hard-stop: transient API error on $id ${retries}× — relaunch to retry" || true
+        break 2
+      fi
+      echo "── $id: transient API error ($retries/$MAX_RETRIES) — retrying in ${RETRY_BACKOFF}s"
+      sleep "$RETRY_BACKOFF"
+      continue
     fi
     if [ "$rc" -ne 0 ]; then
       # Preserve the full failure and surface a concise reason from claude's JSON
@@ -145,41 +175,60 @@ except Exception as e:
     fi
     cost=$(echo "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_cost_usd", 0))' 2>/dev/null || echo 0)
     task_cost=$(python3 -c "print(round($task_cost + $cost, 2))")
-    # The merge (task.sh done) runs inside the model session; a session that
-    # ends a step early leaves the task in-progress — work committed, unmerged.
-    # Drive it to a terminal state rather than accepting that as a failure.
-    if [ "$status" = "in-progress" ]; then
-      # Deterministic finish: review already approved and the branch has commits
-      # → merge without another model call. task.sh done runs verify.sh, so a red
-      # tree still won't merge; if it refuses, fall through to a resume.
-      if [ "VERDICT: approve" = "$(grep '^VERDICT:' "$dir/review.md" 2>/dev/null | tail -1)" ] \
-         && branch_has_commits "$id" && "$SCRIPTS/task.sh" done "$id"; then
+    # A stalled resume: the session exited cleanly but committed nothing new — so
+    # resuming again would just no-op. Detected by comparing branch tips.
+    stalled=; { [ "$rc" -eq 0 ] && [ "$(branch_head "$id")" = "$before" ]; } && stalled=1
+    # The merge (task.sh done) runs inside the model session; a session that ends a
+    # step early leaves the task in-progress — work committed, unmerged. Drive it to
+    # a terminal state rather than accepting that as a failure. This handles the
+    # committed-work case; a nonzero exit with NO work falls through to the env-retry
+    # guard below (there is nothing to resume).
+    if [ "$status" = "in-progress" ] && branch_has_commits "$id"; then
+      approved=; [ "VERDICT: approve" = "$(grep '^VERDICT:' "$dir/review.md" 2>/dev/null | tail -1)" ] && approved=1
+      # Deterministic finish (no extra model call): merge when the review approved,
+      # or when resuming is pointless — the session stalled (no new commit) or the
+      # resume budget is nearly spent. task.sh done re-runs verify.sh, so a red tree
+      # is never merged; green committed work is finished, not blocked for lack of a
+      # review verdict (the failure this guards against).
+      if { [ -n "$approved" ] || [ -n "$stalled" ] || [ "$resume" -ge "$((MAX_RESUME - 1))" ]; } \
+         && "$SCRIPTS/task.sh" done "$id" >/dev/null 2>&1; then
         status=$(get_field "$dir/task.md" Status)   # done, or pr when DONE=pr
-      fi
-    fi
-    if [ "$status" = "in-progress" ]; then
-      # Bounded auto-resume: re-invoke the same task. task.sh start resumes its
-      # existing branch, so build continues into review + merge. The prior
-      # failure reason rides along so the retry doesn't repeat the mistake.
-      resume=$((resume + 1))
-      if [ "$resume" -lt "$MAX_RESUME" ]; then
+      elif [ "$resume" -lt "$MAX_RESUME" ] && [ -z "$stalled" ]; then
+        # Bounded auto-resume: re-invoke the same task. task.sh start resumes its
+        # existing branch, so build continues into review + merge. The prior failure
+        # reason rides along so the retry doesn't repeat the mistake.
+        resume=$((resume + 1))
         park_wip "$id" "wip: interrupted session"
         echo "── $id ended in-progress; resuming to finish ($resume/$MAX_RESUME)"
         prompt="$BUILD_SKILL $id — already in progress on its branch; finish the pipeline (review if needed) and RUN task.sh done to verify + merge. Do not stop until Status is done or blocked.${fail_reason:+ Previous attempt failed: $fail_reason}"
         continue
+      else
+        # Can't finish and can't usefully resume — block, naming the verify color so
+        # a human can tell finished-but-unmerged (GREEN) from genuinely broken (RED).
+        if "$SCRIPTS/verify.sh" >/dev/null 2>&1; then vcolor="verify GREEN"; else vcolor="verify RED"; fi
+        "$SCRIPTS/task.sh" block "$id" "loop.sh: still in-progress after $resume resume attempt(s); $vcolor${fail_reason:+ — last failure: $fail_reason}"
+        status=blocked
       fi
-      "$SCRIPTS/task.sh" block "$id" "loop.sh: still in-progress after $resume resume attempts${fail_reason:+ — last failure: $fail_reason}"
+    fi
+    # A clean session (rc=0) that ended in-progress with no committed work did
+    # nothing to resume or merge — block for a human rather than spin on it.
+    if [ "$status" = "in-progress" ] && [ "$rc" -eq 0 ]; then
+      "$SCRIPTS/task.sh" block "$id" "loop.sh: session ended in-progress with no committed work"
       status=blocked
     fi
     break
   done
   total_cost=$(python3 -c "print(round($total_cost + $task_cost, 2))")
-  # Env/transient failure: claude errored before the task started (status never
-  # left todo), so no work was touched — no network, a stranded tree, a crash.
-  # Not the task's fault: retry the SAME task up to MAX_RETRIES WITHOUT spending
-  # the task budget (n). A standing condition (MAX_RETRIES straight fails) hard-
-  # stops with the captured reason; the task is left todo for a clean re-run.
-  if [ "$rc" -ne 0 ] && { [ "$status" = "todo" ] || [ -z "$status" ]; }; then
+  # Env failure with no work done: claude errored before anything was committed —
+  # status still todo (never started), or in-progress on a zero-commit branch (a
+  # drop right after task.sh start). No network, a stranded tree, a crash. Not the
+  # task's fault: retry the SAME task up to MAX_RETRIES WITHOUT spending the task
+  # budget (n). Abandon a zero-commit in-progress branch first so the retry starts
+  # clean and its repo is un-stranded. A standing condition (MAX_RETRIES straight
+  # fails) hard-stops with the captured reason; the task is left todo.
+  if [ "$rc" -ne 0 ] && { [ "$status" = "todo" ] || [ -z "$status" ] \
+       || { [ "$status" = "in-progress" ] && ! branch_has_commits "$id"; }; }; then
+    if [ "$status" = "in-progress" ]; then "$SCRIPTS/task.sh" abandon "$id" >/dev/null 2>&1 || true; fi
     retries=$((retries + 1))
     if [ "$retries" -ge "$MAX_RETRIES" ]; then
       echo "── $id failed $retries× before doing any work — giving up (task left todo)"

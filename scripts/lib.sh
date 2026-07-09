@@ -58,6 +58,14 @@ is_out_of_credits() { # rc 0 if <output> is a credit/billing exhaustion, not a
   echo "$1" | grep -qiE 'credit balance (is )?too low|purchase credits|insufficient (credit|funds)|out of (usage )?credits?'
 }
 
+is_transient_api_error() { # rc 0 if <output> looks like a transient, self-clearing
+  # API/network drop worth an immediate retry — distinct from a usage limit (waits
+  # for a reset), out-of-credits (human must act), or a genuine task failure. Keep
+  # the pattern tight: prefer claude's JSON `result` field over raw stderr so a task
+  # whose own output mentions "internal server error" isn't misread as a drop.
+  echo "$1" | grep -qiE 'connection closed mid-response|connection reset|connection error|econnreset|etimedout|socket hang up|network( error|.*unreachable)|error 5[0-9][0-9]|overloaded_error|internal server error|service unavailable'
+}
+
 limit_wait() { # limit_wait <claude output> -> seconds to wait, or rc 1 if not a usage/rate limit
   echo "$1" | grep -qiE 'usage limit|rate.?limit|(hour|weekly|session) limit' || return 1
   local reset now
@@ -91,4 +99,16 @@ branch_has_commits() { # rc 0 if any affected repo's task branch is ahead of DEF
     [ -n "$(git -C "$path" log --oneline "$DEFAULT_BRANCH..$branch" 2>/dev/null)" ] && return 0
   done
   return 1
+}
+
+branch_head() { # branch_head <id> -> "repo:sha …" tips of the task branch (- if absent),
+  # a cheap fingerprint for detecting whether a resume session committed anything.
+  local id="$1" dir branch repo path sha out=""
+  dir=$(task_dir "$id"); branch=$(get_field "$dir/task.md" Branch)
+  for repo in $(get_field "$dir/task.md" Repos); do
+    path=$(repo_path "$repo")
+    sha=$(git -C "$path" rev-parse -q --verify "$branch" 2>/dev/null) || sha="-"
+    out="$out $repo:$sha"
+  done
+  echo "${out# }"
 }

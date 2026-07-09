@@ -110,6 +110,21 @@ verdict=$(grep '^VERDICT:' "$d3/review.md" | tail -1)
 grep -q "Status: done" "$d3/task.md" || fail "id3 not done after merge"
 git -C app log -1 --format=%B | grep -q "Task-Id: $id3" || fail "id3 merge missing trailer"
 
+# --- branch_head: fingerprints the task branch tip so loop.sh can spot a resume
+# that committed nothing. A sha while the branch lives (id2), "-" once merged/gone
+# (id3's branch was deleted by done).
+lib "branch_head $id2" | grep -qE "app:[0-9a-f]{7}" || fail "branch_head should show a sha for a live branch"
+lib "branch_head $id3" | grep -q "app:-" || fail "branch_head should show - for a deleted branch"
+
+# --- is_transient_api_error: matches self-clearing network/API drops (retry), not
+# usage limits, out-of-credits, or ordinary task failures (which must surface)
+for msg in "API Error: Connection closed mid-response." "read ECONNRESET" "overloaded_error" "Error 529" "service unavailable"; do
+  lib "is_transient_api_error '$msg'" || fail "is_transient_api_error missed: $msg"
+done
+for msg in "Claude AI usage limit reached" "credit balance is too low" "acceptance test failed: expected 3"; do
+  lib "is_transient_api_error '$msg'" && fail "is_transient_api_error false-matched: $msg" || true
+done
+
 # --- cold-start orphan: task.sh next returns an in-progress task (resume) instead
 # of skipping it, so an orphan self-heals and gates its successors. The red-verify
 # test above left id2 (0002) in-progress with commits, ahead of the 0003 todo.

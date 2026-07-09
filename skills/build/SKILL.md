@@ -11,7 +11,7 @@ Scripts: `${CLAUDE_PLUGIN_ROOT}/scripts/`. You orchestrate; you do not write cod
 1. `preflight.sh --quick`; then `task.sh start <id>`.
 2. Spawn the `implementer` agent: "Implement task <id>. Folder: scaffold/tasks/<id>-<slug>/". If UI-heavy and no design.md exists, run /scaffold:design first.
 3. `RESULT: blocked` → `task.sh block <id> "<question>"`, report to user, stop this task.
-4. Spawn the `reviewer` agent on the task. Then:
+4. Spawn the `reviewer` agent on the task — **always**, and always let it write a verdict to `review.md`, even on a resume where the branch is already complete and step 2 was a no-op. A branch that already looks finished still flows review → done; never stop at Status `in-progress`. Then:
    - `VERDICT: approve` → step 5.
    - `VERDICT: blocking` and Rounds < 2 → increment Rounds in task.md, send ONLY the blocking findings back to the implementer to fix, then review again.
    - still blocking at Rounds = 2 → `task.sh block <id> "review did not converge: <summary>"`, stop this task.
