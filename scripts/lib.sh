@@ -78,6 +78,17 @@ limit_wait() { # limit_wait <claude output> -> seconds to wait, or rc 1 if not a
   fi
 }
 
+task_base() { # task_base <task.md> -> branch this task integrates into: its
+  # feature branch (DONE=pr + Feature set) or DEFAULT_BRANCH
+  local f
+  f=$(get_field "$1" Feature) || f=""
+  if [ "$DONE" = "pr" ] && [ -n "$f" ] && [ "$f" != "-" ]; then
+    echo "feature/$f"
+  else
+    echo "$DEFAULT_BRANCH"
+  fi
+}
+
 park_wip() { # park_wip <id> <msg>: commit leftover WIP on the task branch so
   # preflight passes on a retry (task.sh done squashes it away). No-op if clean.
   local id="$1" msg="$2" dir branch repo path
@@ -90,13 +101,14 @@ park_wip() { # park_wip <id> <msg>: commit leftover WIP on the task branch so
   done
 }
 
-branch_has_commits() { # rc 0 if any affected repo's task branch is ahead of DEFAULT_BRANCH
-  local id="$1" dir branch repo path
+branch_has_commits() { # rc 0 if any affected repo's task branch is ahead of its base
+  local id="$1" dir branch base repo path
   dir=$(task_dir "$id"); branch=$(get_field "$dir/task.md" Branch)
+  base=$(task_base "$dir/task.md")
   for repo in $(get_field "$dir/task.md" Repos); do
     path=$(repo_path "$repo")
     git -C "$path" rev-parse -q --verify "$branch" >/dev/null || continue
-    [ -n "$(git -C "$path" log --oneline "$DEFAULT_BRANCH..$branch" 2>/dev/null)" ] && return 0
+    [ -n "$(git -C "$path" log --oneline "$base..$branch" 2>/dev/null)" ] && return 0
   done
   return 1
 }

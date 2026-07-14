@@ -230,6 +230,37 @@ grep -q "Status: done" "$dp/task.md" || fail "merged PR should complete the task
 grep -q "app:1234567" "$dp/task.md" || fail "merge sha not recorded"
 grep -q "$idp" scaffold/tasks/_log.md || fail "no log line after sync"
 git -C app rev-parse -q --verify "task/$idp-pr-flow" >/dev/null && fail "local branch not cleaned up" || true
+
+# --- DONE=pr + features: tasks squash-merge as single commits onto feature/<slug>;
+# the PR opens only when the feature's last task lands; sync completes the feature
+fa=$("$SCAFFOLD/scripts/task.sh" new "Feat part one" app login-flow)
+fb=$("$SCAFFOLD/scripts/task.sh" new "Feat part two" app login-flow)
+grep -q "Feature: login-flow" scaffold/tasks/"$fa"-*/task.md || fail "Feature field not set"
+grep -q "Tasks: $fa $fb" scaffold/tasks/_features/login-flow.md || fail "feature file has wrong members"
+"$SCAFFOLD/scripts/task.sh" start "$fa" >/dev/null
+echo one > app/one.txt
+git -C app add . && git -C app commit -qm "wip one"
+"$SCAFFOLD/scripts/task.sh" done "$fa" >/dev/null || fail "feature task done failed"
+grep -q "Status: done" scaffold/tasks/"$fa"-*/task.md || fail "feature task should be done on landing"
+grep -q "Status: open" scaffold/tasks/_features/login-flow.md || fail "feature must stay open mid-feature"
+[ "$(git -C app rev-parse --abbrev-ref HEAD)" = "feature/login-flow" ] || fail "repo should sit on the feature branch mid-feature"
+git -C app log -1 --format=%B | grep -q "Task-Id: $fa" || fail "feature merge missing Task-Id trailer"
+"$SCAFFOLD/scripts/task.sh" start "$fb" >/dev/null
+[ -f app/one.txt ] || fail "second feature task must see the first task's work"
+echo two > app/two.txt
+git -C app add . && git -C app commit -qm "wip two"
+"$SCAFFOLD/scripts/task.sh" done "$fb" >/dev/null || fail "final feature task done failed"
+grep -q "Status: pr" scaffold/tasks/_features/login-flow.md || fail "feature should be pr after its last task"
+grep -q "PR: app:https://example.test/pr/1" scaffold/tasks/_features/login-flow.md || fail "feature PR url not recorded"
+[ "$(git -C app rev-parse --abbrev-ref HEAD)" = "main" ] || fail "should be back on main after the feature ships"
+git -C "$TMP/app-origin" rev-parse -q --verify feature/login-flow >/dev/null || fail "feature branch not pushed to origin"
+[ "$(git -C app log --oneline main..feature/login-flow | wc -l | tr -d ' ')" = 2 ] \
+  || fail "feature branch should carry exactly one commit per task"
+GH_PR_STATE=MERGED GH_PR_SHA=abcdef1234567890 "$SCAFFOLD/scripts/task.sh" sync >/dev/null
+grep -q "Status: done" scaffold/tasks/_features/login-flow.md || fail "merged feature PR should complete the feature"
+git -C app rev-parse -q --verify feature/login-flow >/dev/null && fail "feature branch not cleaned up" || true
+grep -q "feature login-flow" scaffold/tasks/_log.md || fail "no feature log line"
+
 # red origin/main: verify fails with the repo exactly at origin → exit 3
 rm app/ok.txt && git -C app add -A && git -C app commit -qm "teammate breaks main"
 git -C app push -q origin main

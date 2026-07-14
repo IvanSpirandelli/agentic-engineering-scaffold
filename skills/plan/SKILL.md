@@ -16,5 +16,6 @@ Turn `scaffold/specs/` into tasks. Focus: $ARGUMENTS
    - explicit non-goals ("don't touch X"),
    - the repos it spans (cross-repo only when the feature genuinely spans them).
    Too big to verify in one run → split it. Vague spec → ask the user now, not the implementer later.
-5. Order by dependency, then present the list to the user for approval. Decomposition quality is the leading indicator of pipeline success — spend your effort here.
-6. On approval, for each task run `${CLAUDE_PLUGIN_ROOT}/scripts/task.sh new "<title>" ["<repos>"]` and fill Goal / Acceptance criteria / Non-goals in the created task.md. Do not implement anything.
+   If `DONE=pr` in agents.env, also group the tasks into **features** — one feature = one coherent, reviewable PR. Tasks in a feature land as single commits on a shared `feature/<slug>` branch and the PR opens when its last task finishes, so dependencies *within* a feature are fine; avoid depending on a task in a different, still-unmerged feature. A one-off task may stay featureless (it gets its own PR).
+5. Order by dependency, then present the list (with its feature grouping) to the user for approval. Decomposition quality is the leading indicator of pipeline success — spend your effort here.
+6. On approval, for each task run `${CLAUDE_PLUGIN_ROOT}/scripts/task.sh new "<title>" ["<repos>"] ["<feature-slug>"]` and fill Goal / Acceptance criteria / Non-goals in the created task.md. Do not implement anything.
