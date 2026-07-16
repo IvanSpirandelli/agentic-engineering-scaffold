@@ -1,6 +1,6 @@
 # Agentic Engineering Scaffold
 
-A Claude Code plugin that turns a spec file into working software through a verify-gated task loop: fresh-context implementer (TDD) → deterministic verification → fresh-context reviewer → one squash-commit per feature per repo (or, for shared repos, a pre-reviewed PR — `DONE=pr`). Everything mechanical is a script; LLMs only where judgment is needed. Rationale: `DESIGN.md`.
+A Claude Code plugin that turns plain-language intent notes into working software through a verify-gated task loop: fresh-context implementer (TDD) → deterministic verification → fresh-context reviewer → one squash-commit per feature per repo (or, for shared repos, a pre-reviewed PR — `DONE=pr`). Everything mechanical is a script; LLMs only where judgment is needed. Rationale: `DESIGN.md`.
 
 ## Install (once)
 
@@ -17,15 +17,15 @@ Propagate improvements to all projects: commit here, then `/plugin marketplace u
 ```
 mkdir my-product && cd my-product && claude
 /scaffold:init-project          # interview → scaffold/ (state) + code repos
-# write scaffold/specs/spec.md
-/scaffold:plan                  # specs → sized, verifiable tasks
+# drop a note in scaffold/updates/ describing what to build
+/scaffold:plan                  # notes → sized, verifiable tasks
 /scaffold:build all             # interactive: implement → verify → review → merge
 $SCAFFOLD/scripts/loop.sh      # headless: fresh context per task, cost/task caps, rides out usage limits
 ```
 
 Team repo (you're the only plugin user): set `DONE=pr` in `scaffold/agents.env`. Preflight fetches a fresh `origin/<default>` base, `task.sh done` pushes the task branch and opens a pre-reviewed PR instead of merging, and `task.sh sync` (run by preflight) completes tasks once their PRs merge. A red upstream parks `loop.sh` (retry after `UPSTREAM_BACKOFF`) instead of blocking tasks.
 
-Iterate: drop update notes (any shape) in `scaffold/specs/updates/` and re-run `/scaffold:plan` — it integrates them into the living spec (your words are committed verbatim first; you approve the spec diff), then plans only the uncovered delta. Editing `scaffold/specs/` directly works too. Old spec versions live in the workspace's git history, not as spec_2 files; each task.md records the spec commit it was planned from (`Spec:`), and `/scaffold:retro` uses cross-version rework as evidence.
+Iterate: drop update notes (any shape) in `scaffold/updates/` and re-run `/scaffold:plan` — it commits your words to git history, then turns them into sized, verifiable tasks (only the delta not already built). There is no living spec to maintain; the notes' git history is the record of intent, each task.md records the note commit it was planned from (`Intent:`), and `/scaffold:retro` reads that note to tell a misunderstanding from a changed request.
 
 Human touchpoints: approve the plan, read `scaffold/NEEDS_HUMAN.md` when a task blocks, write `scaffold/tasks/<id>-*/feedback.md` after reviewing merged work, run `/scaffold:retro` to turn feedback into scaffold-improvement proposals (you apply them here — agents can't edit the plugin, a hook enforces it).
 
@@ -77,7 +77,7 @@ my-product/         run claude here; git repo versioning the scaffold state
   <repo>/           code repos, each its own git repo (ignored by the root repo)
   scaffold/
     agents.env      repos (../<repo>) + verify commands (validated by preflight)
-    specs/          product spec — the human's input, versioned by the root repo
+    updates/        intent notes — the human's input; /plan consumes them, git history keeps them
     tasks/          SINGLE SOURCE OF TRUTH: NNNN-slug/{task,review,feedback,design}.md
     tasks/_log.md   one line per merged task (bounded memory)
     NEEDS_HUMAN.md  escalations

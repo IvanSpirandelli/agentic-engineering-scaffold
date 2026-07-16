@@ -45,7 +45,7 @@ git -C app log -1 --format=%B | grep -q "Task-Id: 0001" || fail "missing Task-Id
 git -C app log --oneline | wc -l | grep -q 3 || fail "expected exactly 3 commits (squash)"
 grep -q "Status: done" scaffold/tasks/0001-*/task.md || fail "status not done"
 grep -q "app:" scaffold/tasks/0001-*/task.md || fail "commit sha not recorded"
-grep -q "^Spec:" scaffold/tasks/0001-*/task.md || fail "no Spec field"
+grep -q "^Intent:" scaffold/tasks/0001-*/task.md || fail "no Intent field"
 grep -q "0001" scaffold/tasks/_log.md || fail "no log line"
 git -C "$WS" log --oneline | grep -q "task 0001 done" || fail "no workspace snapshot commit"
 git -C app rev-parse -q --verify task/0001-add-greeting-feature >/dev/null && fail "branch not deleted" || true

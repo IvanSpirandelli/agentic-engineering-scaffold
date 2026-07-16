@@ -6,10 +6,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 usage() { grep '^# Usage' "$0" | cut -c3-; exit 1; }
 
-snapshot_ws() { # commit workspace state (spec/task history for /retro)
+snapshot_ws() { # commit workspace state (update-note/task history for /retro)
   git -C "$WS" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
   local p
-  for p in tasks specs NEEDS_HUMAN.md; do [ -e "$WS/$p" ] && git -C "$WS" add "$p"; done
+  for p in tasks updates NEEDS_HUMAN.md; do [ -e "$WS/$p" ] && git -C "$WS" add "$p"; done
   git -C "$WS" diff --cached --quiet || git -C "$WS" commit -qm "$1" \
     || echo "WARN: workspace snapshot commit failed" >&2
 }
@@ -18,11 +18,11 @@ cmd_new() {
   local title="${1:?usage: task.sh new \"<title>\" [repos] [feature]}"
   local repos="${2:-$REPOS}"
   local feature="${3:-}"
-  local last id slug dir spec fmd
+  local last id slug dir intent fmd
   last=$(ls "$TASKS" 2>/dev/null | grep -E '^[0-9]{4}-' | sort | tail -1 | cut -d- -f1 || true)
   id=$(printf '%04d' $((10#${last:-0} + 1)))
   slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g' | cut -c1-40)
-  spec=$(git -C "$WS" log -1 --format=%h -- specs 2>/dev/null) || spec=""
+  intent=$(git -C "$WS" log -1 --format=%h -- updates 2>/dev/null) || intent=""
   if [ -n "$feature" ]; then
     feature=$(echo "$feature" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g' | cut -c1-40)
     fmd="$TASKS/_features/$feature.md"
@@ -43,7 +43,7 @@ Status: todo
 Repos: $repos
 Branch: task/$id-$slug
 Feature: ${feature:--}
-Spec: ${spec:--}
+Intent: ${intent:--}
 Commits: -
 PR: -
 Rounds: 0

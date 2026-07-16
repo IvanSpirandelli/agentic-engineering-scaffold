@@ -1,6 +1,6 @@
 # Workspace: {{PROJECT_NAME}}
 
-Scaffold workspace. Product spec: `scaffold/specs/` (living documents; versions live in this repo's git history). To change it: drop notes in `scaffold/specs/updates/` and run `/scaffold:plan` — it merges them in and plans the delta. Task state (single source of truth): `scaffold/tasks/` — status lives in each `task.md`; digest in `tasks/_log.md`. Config: `scaffold/agents.env`. Escalations: `scaffold/NEEDS_HUMAN.md`.
+Scaffold workspace. Intent notes: `scaffold/updates/` — drop a note (any shape) describing what to build or change, then run `/scaffold:plan`; your words are committed to git history (the record of intent — there is no living spec). Task state (single source of truth): `scaffold/tasks/` — status lives in each `task.md`; digest in `tasks/_log.md`. Config: `scaffold/agents.env`. Escalations: `scaffold/NEEDS_HUMAN.md`.
 
 Pipeline: `/scaffold:plan` → `/scaffold:build` (or `scripts/loop.sh` headless). Mechanics (branching, merging, verification) are scripts under the scaffold plugin — never do them by hand.
 
