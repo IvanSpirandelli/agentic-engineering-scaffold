@@ -34,7 +34,7 @@ Human touchpoints: approve the plan, read `scaffold/NEEDS_HUMAN.md` when a task 
 The mechanics live in `scripts/` inside the plugin, not in your workspace. Claude sessions reach them via `${CLAUDE_PLUGIN_ROOT}/scripts/…`; from your own terminal use the plugin root — for a directory-source marketplace that is simply where you cloned this repo (check `installLocation` in `~/.claude/plugins/known_marketplaces.json`). Set it once:
 
 ```
-export SCAFFOLD=~/path/to/agentic-engineering-scaffold
+export SCAFFOLD=~/path/to/machines-at-work
 ```
 
 Every script finds the workspace on its own by walking up from the current directory until it hits `agents.env` (directly or in a `scaffold/` child). So they run identically from the project root, from `scaffold/`, or from inside any code repo — `cd backend && $SCAFFOLD/scripts/verify.sh backend` works. The only requirement is being *somewhere below* the project root; there are no path arguments to get wrong.
