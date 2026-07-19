@@ -2,6 +2,8 @@
 """PreToolUse guard: deterministic safety rails.
 Blocks: force-push, push to main/master, destructive rm, and any edit to the
 machines-at-work plugin itself (self-modification must go through /machines-at-work:retro proposals).
+Exempt: dev sessions — when the session cwd is inside the plugin root, the
+plugin is the thing being developed, not used, so edits are allowed.
 Exit 2 = block (stderr goes to the agent). Exit 0 = allow.
 """
 import json
@@ -33,9 +35,13 @@ def main() -> None:
 
     if tool in ("Write", "Edit", "NotebookEdit"):
         plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
-        path = os.path.realpath(tin.get("file_path", ""))
-        if plugin_root and path.startswith(os.path.realpath(plugin_root) + os.sep):
-            deny("the machines-at-work plugin is read-only inside projects; use /machines-at-work:retro to propose changes")
+        if plugin_root:
+            root = os.path.realpath(plugin_root)
+            cwd = os.path.realpath(data.get("cwd") or os.getcwd())
+            dev_session = cwd == root or cwd.startswith(root + os.sep)
+            path = os.path.realpath(tin.get("file_path", ""))
+            if not dev_session and path.startswith(root + os.sep):
+                deny("the machines-at-work plugin is read-only inside projects; use /machines-at-work:retro to propose changes")
 
     sys.exit(0)
 

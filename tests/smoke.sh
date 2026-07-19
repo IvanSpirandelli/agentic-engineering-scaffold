@@ -315,7 +315,8 @@ g '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' && fail "guard: rm 
 g '{"tool_name":"Bash","tool_input":{"command":"git push origin task/0001-x"}}' || fail "guard: task-branch push blocked"
 g '{"tool_name":"Bash","tool_input":{"command":"rm -rf node_modules"}}' || fail "guard: normal rm blocked"
 CLAUDE_PLUGIN_ROOT="$MACHINES_AT_WORK" python3 -c 'import json,subprocess,sys,os
-p=subprocess.run(["python3", os.environ["CLAUDE_PLUGIN_ROOT"]+"/hooks/guard.py"], input=json.dumps({"tool_name":"Edit","tool_input":{"file_path":os.environ["CLAUDE_PLUGIN_ROOT"]+"/agents/implementer.md"}}), capture_output=True, text=True)
-sys.exit(0 if p.returncode==2 else 1)' || fail "guard: plugin self-edit allowed"
+root=os.environ["CLAUDE_PLUGIN_ROOT"]
+def g(cwd): return subprocess.run(["python3", root+"/hooks/guard.py"], input=json.dumps({"tool_name":"Edit","cwd":cwd,"tool_input":{"file_path":root+"/agents/implementer.md"}}), capture_output=True, text=True).returncode
+sys.exit(0 if g("/") == 2 and g(root) == 0 else 1)' || fail "guard: self-edit gate wrong (project must block, dev session must allow)"
 
 echo "SMOKE OK"
