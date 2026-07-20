@@ -18,7 +18,7 @@ cmd_new() {
   local title="${1:?usage: task.sh new \"<title>\" [repos] [feature]}"
   local repos="${2:-$REPOS}"
   local feature="${3:-}"
-  local last id slug dir intent fmd
+  local last id slug dir intent fmd fstatus
   last=$(ls "$TASKS" 2>/dev/null | grep -E '^[0-9]{4}-' | sort | tail -1 | cut -d- -f1 || true)
   id=$(printf '%04d' $((10#${last:-0} + 1)))
   slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g' | cut -c1-40)
@@ -27,6 +27,12 @@ cmd_new() {
     feature=$(echo "$feature" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g' | cut -c1-40)
     fmd="$TASKS/_features/$feature.md"
     if [ -f "$fmd" ]; then
+      # A feature accepts new tasks while open or its PR is still open (amendment
+      # lands on the same branch → same PR); a merged/closed PR ends the window.
+      fstatus=$(get_field "$fmd" Status)
+      case "$fstatus" in done|blocked)
+        echo "ERROR: feature $feature is $fstatus — its PR is closed to amendments; plan a new feature" >&2; exit 1 ;;
+      esac
       set_field "$fmd" Tasks "$(get_field "$fmd" Tasks) $id"
     else
       mkdir -p "$TASKS/_features"
@@ -254,7 +260,7 @@ cmd_sync() {
   # DONE=pr: reconcile pr-status tasks against GitHub. Merged → done (+digest,
   # local branch cleanup), closed unmerged → blocked, open → leave as-is.
   [ "$DONE" = "pr" ] || { echo "sync: nothing to do (DONE=$DONE)"; return 0; }
-  local d md id title branch entry repo url out state sha shas open path fmd slug
+  local d md id title branch entry repo url out state sha shas open path fmd slug tid tstatus
   for d in "$TASKS"/[0-9]*/; do
     md="$d/task.md"; [ -f "$md" ] || continue
     [ "$(get_field "$md" Status)" = "pr" ] || continue
@@ -284,7 +290,9 @@ cmd_sync() {
     snapshot_ws "task $id merged: $title"
     echo "synced $id → done (${shas# })"
   done
-  # Feature PRs reconcile the same way; member tasks are already done.
+  # Feature PRs reconcile the same way. Member tasks are done — except an
+  # amendment the merge raced past (planned while the PR was open, unfinished
+  # at merge): its integration branch is gone, so it is blocked for a replan.
   for fmd in "$TASKS"/_features/*.md; do
     [ -f "$fmd" ] || continue
     [ "$(get_field "$fmd" Status)" = "pr" ] || continue
@@ -312,6 +320,12 @@ cmd_sync() {
       git -C "$path" branch -qD "$branch"
     done
     set_field "$fmd" Status done
+    for tid in $(get_field "$fmd" Tasks); do
+      tstatus=$(get_field "$(task_dir "$tid")/task.md" Status)
+      case "$tstatus" in todo|in-progress)
+        cmd_block "$tid" "feature $slug PR merged before this task landed — replan against the fresh base" >/dev/null ;;
+      esac
+    done
     echo "- feature $slug · merged ·$shas" >> "$TASKS/_log.md"
     snapshot_ws "feature $slug merged"
     echo "synced feature $slug → done (${shas# })"

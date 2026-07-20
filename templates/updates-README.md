@@ -10,5 +10,9 @@ A good note carries, in whatever form fits:
 - **Out of scope** — explicit non-goals; agents treat these as forbidden.
 - **How it's proven** — the commands or flows that show a finished result works end-to-end.
 
+A note can also amend work sitting in a **still-open PR** — name the PR or feature and the new
+tasks land on its branch, so the same PR picks them up. Once that PR merges, the window closes
+automatically; the note becomes a fresh task instead.
+
 Notes are consumed by `/machines-at-work:plan` and removed from this folder once planned; recover any
-past note from git history. This README stays; `/machines-at-work:plan` ignores it.
+past note from git history. This folder and its README stay; `/machines-at-work:plan` ignores the README.

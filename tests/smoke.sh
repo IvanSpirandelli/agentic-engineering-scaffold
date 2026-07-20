@@ -285,6 +285,36 @@ grep -q "Status: done" machines-at-work/tasks/_features/login-flow.md || fail "m
 git -C app rev-parse -q --verify feature/login-flow >/dev/null && fail "feature branch not cleaned up" || true
 grep -q "feature login-flow" machines-at-work/tasks/_log.md || fail "no feature log line"
 
+# --- PR amendment window: a merged feature refuses new tasks; a feature with an
+# open PR accepts them (they land on the same branch → same PR); sync blocks an
+# amend task the merge raced past
+"$MACHINES_AT_WORK/scripts/task.sh" new "Too late" app login-flow >/dev/null 2>&1 \
+  && fail "new must refuse a task for a merged (done) feature" || true
+fc=$("$MACHINES_AT_WORK/scripts/task.sh" new "Amend base" app amend-flow)
+"$MACHINES_AT_WORK/scripts/task.sh" start "$fc" >/dev/null
+echo base > app/amend1.txt
+git -C app add . && git -C app commit -qm "wip amend base"
+"$MACHINES_AT_WORK/scripts/task.sh" done "$fc" >/dev/null || fail "amend-flow base task failed"
+grep -q "Status: pr" machines-at-work/tasks/_features/amend-flow.md || fail "amend-flow should be pr after shipping"
+fd=$("$MACHINES_AT_WORK/scripts/task.sh" new "Amend addition" app amend-flow) \
+  || fail "new must accept a task for a feature with an open PR"
+grep -q "Tasks: $fc $fd" machines-at-work/tasks/_features/amend-flow.md || fail "amend task not appended to feature"
+"$MACHINES_AT_WORK/scripts/task.sh" start "$fd" >/dev/null
+[ -f app/amend1.txt ] || fail "amend task must branch from the live feature branch"
+echo more > app/amend2.txt
+git -C app add . && git -C app commit -qm "wip amend addition"
+"$MACHINES_AT_WORK/scripts/task.sh" done "$fd" >/dev/null || fail "amend task done failed"
+grep -q "Status: pr" machines-at-work/tasks/_features/amend-flow.md || fail "amended feature should re-ship as pr"
+[ "$(git -C app log --oneline main..feature/amend-flow | wc -l | tr -d ' ')" = 2 ] \
+  || fail "feature branch should carry the original and the amend commit"
+fe=$("$MACHINES_AT_WORK/scripts/task.sh" new "Raced amend" app amend-flow)
+GH_PR_STATE=MERGED GH_PR_SHA=fedcba9876543210 "$MACHINES_AT_WORK/scripts/task.sh" sync >/dev/null
+grep -q "Status: done" machines-at-work/tasks/_features/amend-flow.md || fail "merged amend-flow should be done"
+grep -q "Status: blocked" machines-at-work/tasks/"$fe"-*/task.md \
+  || fail "sync must block an amend task the merge raced past"
+"$MACHINES_AT_WORK/scripts/task.sh" new "Way too late" app amend-flow >/dev/null 2>&1 \
+  && fail "new must refuse the feature once its PR merged" || true
+
 # red origin/main: verify fails with the repo exactly at origin → exit 3
 rm app/ok.txt && git -C app add -A && git -C app commit -qm "teammate breaks main"
 git -C app push -q origin main
@@ -366,6 +396,10 @@ g '{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}' && fail
 g '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' && fail "guard: rm -rf / allowed" || true
 g '{"tool_name":"Bash","tool_input":{"command":"git push origin task/0001-x"}}' || fail "guard: task-branch push blocked"
 g '{"tool_name":"Bash","tool_input":{"command":"rm -rf node_modules"}}' || fail "guard: normal rm blocked"
+g '{"tool_name":"Bash","tool_input":{"command":"rm -rf machines-at-work/updates"}}' && fail "guard: updates folder rm allowed" || true
+g '{"tool_name":"Bash","tool_input":{"command":"git rm -r updates/"}}' && fail "guard: git rm -r updates allowed" || true
+g '{"tool_name":"Bash","tool_input":{"command":"rm updates/*"}}' && fail "guard: updates wildcard rm allowed" || true
+g '{"tool_name":"Bash","tool_input":{"command":"git rm updates/tg-1600000000-42.md"}}' || fail "guard: single note rm blocked"
 CLAUDE_PLUGIN_ROOT="$MACHINES_AT_WORK" python3 -c 'import json,subprocess,sys,os
 root=os.environ["CLAUDE_PLUGIN_ROOT"]
 def g(cwd): return subprocess.run(["python3", root+"/hooks/guard.py"], input=json.dumps({"tool_name":"Edit","cwd":cwd,"tool_input":{"file_path":root+"/agents/implementer.md"}}), capture_output=True, text=True).returncode

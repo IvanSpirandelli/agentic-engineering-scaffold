@@ -16,6 +16,8 @@ BASH_DENY = [
     (r"git\s+push\b.*\b(main|master)\b", "pushing to the default branch is forbidden; work on the task branch, task.sh merges"),
     (r"rm\s+(-\w*[rf]\w*\s+)+(/|~|\$HOME)(\s|$)", "destructive rm on / or ~ is forbidden"),
     (r"git\s+checkout\s+.*--\s+\.", "wholesale checkout-discard is forbidden; revert specific files"),
+    (r"rm\s+(-\S+\s+)*\S*\bupdates/?['\"]?(\s|$)", "deleting the updates/ folder is forbidden; remove only the note files you planned — the folder and its README stay"),
+    (r"rm\s+(-\S+\s+)*\S*\bupdates/\*", "wildcard rm in updates/ is forbidden (it takes README.md with it); remove planned note files by name"),
 ]
 
 def deny(reason: str) -> None:
