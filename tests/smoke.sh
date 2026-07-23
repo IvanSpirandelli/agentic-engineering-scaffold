@@ -59,6 +59,16 @@ git -C app rev-parse -q --verify task/0001-add-greeting-feature >/dev/null && fa
 id2=$("$MACHINES_AT_WORK/scripts/task.sh" new "Second thing")
 "$MACHINES_AT_WORK/scripts/task.sh" block "$id2" "unclear spec" >/dev/null
 grep -q "unclear spec" machines-at-work/NEEDS_HUMAN.md || fail "no NEEDS_HUMAN entry"
+
+# --- diagnose: read-only report the unblock skill judges on — global verify
+# color, plus each blocked/in-progress item with its facts and NEEDS_HUMAN reason.
+# id2 is blocked with no commits; verify is GREEN (ok.txt present); id1 is done.
+diag=$("$MACHINES_AT_WORK/scripts/task.sh" diagnose)
+echo "$diag" | grep -q "^verify: GREEN" || fail "diagnose: missing/ wrong verify color"
+echo "$diag" | grep -q "^task 0002 blocked commits=no review=none faillog=no" || fail "diagnose: blocked task facts wrong"
+echo "$diag" | grep -q "reason: unclear spec" || fail "diagnose: NEEDS_HUMAN reason not surfaced"
+echo "$diag" | grep -q "0001" && fail "diagnose: must not list a done task" || true
+
 "$MACHINES_AT_WORK/scripts/task.sh" next >/dev/null && fail "blocked task must not be next" || true
 "$MACHINES_AT_WORK/scripts/task.sh" reopen "$id2" >/dev/null
 [ "$("$MACHINES_AT_WORK/scripts/task.sh" next)" = "0002" ] || fail "reopened task should be next"
